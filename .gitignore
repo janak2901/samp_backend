@@ -1,0 +1,24 @@
+/node_modules
+/public/hot
+/public/storage
+/public/assets/img/projects/
+/public/assets/img/tracker-screenshots/
+/public/assets/img/users/
+/storage/*.key
+/vendor
+.env
+.gitlab-ci.yml
+.env.backup
+.phpunit.result.cache
+docker-compose.override.yml
+Homestead.json
+Homestead.yaml
+npm-debug.log
+yarn-error.log
+/.idea
+/.vscode
+# .DS_Store
+composer.lock
+storage
+Dockerfile
+.dockerignore
