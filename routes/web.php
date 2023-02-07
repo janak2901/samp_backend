@@ -27,10 +27,6 @@ Route::get('/hash', function () {
     echo Hash::make("admin@123");
 });
 
-Route::group(['middleware' => ['projectExist']], function () {
-Route::get("tracker/assigned-projects", [TrackerController::class, 'getAssignedProjects']);
-});
-
 
 Route::get('test-mail', function () {
     $otp = 11111;

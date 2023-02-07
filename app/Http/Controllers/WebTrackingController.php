@@ -9,6 +9,7 @@ use DateTime;
 use DateTimeZone;
 use Exception;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
@@ -20,7 +21,7 @@ class WebTrackingController extends Controller
             // $date = new DateTime("now", new DateTimeZone('Asia/Kolkata'));
             // $localDate = $date->format('Y-m-d h:i:s');
 
-            $today_web_trackings = WebTracking::where('user_id', 1)->whereDate('created_at', date('Y-m-d'))->first();
+            $today_web_trackings = WebTracking::where('user_id', Auth::user()->id)->whereDate('created_at', date('Y-m-d'))->first();
             // $today_web_trackings = WebTracking::where('user_id', ComonUtil::getRedisUserID())->whereDate('created_at', date('Y-m-d'))->first();
 
             // if (empty($today_web_trackings)) {
@@ -54,7 +55,7 @@ class WebTrackingController extends Controller
             $activityMemo = $request->get('activity_memo');
             $currentTime = time();
 
-            $webTracking = WebTracking::where('user_id', CommonUtil::getRedisUserID())->whereDate('created_at', date('Y-m-d'))->first();
+            $webTracking = WebTracking::where('user_id', Auth::user()->id)->whereDate('created_at', date('Y-m-d'))->first();
 
             if (empty($webTracking)) {
                 if ($type != 'clock-in') {
@@ -62,7 +63,7 @@ class WebTrackingController extends Controller
                 }
 
                 $webTracking = new WebTracking();
-                $webTracking->user_id = CommonUtil::getRedisUserID();
+                $webTracking->user_id = Auth::user()->id;
                 $webTracking->ip_address = $request->ip();
                 $webTracking->total = 0;
                 $webTracking->latitude = $request->latitude;
@@ -86,7 +87,7 @@ class WebTrackingController extends Controller
                 // return $oldActivities;
 
                 if ($type == 'clock-in') {
-                    $tPolicy = EmployeeDetail::with('tracker_productivity')->where("user_id", CommonUtil::getRedisUserID())->first();
+                    $tPolicy = EmployeeDetail::with('tracker_productivity')->where("user_id", Auth::user()->id)->first();
                     $ignoreOutPunchMins = empty($tPolicy->tracker_productivity) ? 5 : $tPolicy->tracker_productivity->ignore_out_punch_mins;
                     $ignoreOutPunchTime = (empty($ignoreOutPunchMins) ? 5 : $ignoreOutPunchMins) * 60;
 

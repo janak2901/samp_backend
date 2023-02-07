@@ -36,7 +36,7 @@ class TrackerController extends Controller
             //     $query->where('user_id', 1);
             // })->orWhere("pm_id", 1)->get();
             $projects =  Project::whereHas('project_members', function ($query) {
-                $query->where('user_id',9);
+                $query->where('user_id', Auth::user()->id);
             })->get();
 
             if ($projects->isNotEmpty()) {
@@ -47,7 +47,7 @@ class TrackerController extends Controller
                     $project->LastMemo = $lastMemo ? TrackerMemo::with("status")->find($lastMemo) : null;
                     $project->Lastcreenshot = $project->id ? $this->getLastScreenshot($project->id) : null;
                 }
-                $tPolicy = EmployeeDetail::with('tracker_productivity')->where("user_id", 9)->first();
+                $tPolicy = EmployeeDetail::with('tracker_productivity')->where("user_id", Auth::user()->id)->first();
                 if ((!empty($tPolicy)) && (!empty($tPolicy->tracker_productivity))) {
                     $projects[0]->tracker_policy = $tPolicy->tracker_productivity;
                 } else {
@@ -73,7 +73,8 @@ class TrackerController extends Controller
 
     public function checkLateComming($request, $dayEndTime = null, $isFirst = false, $type = null)
     {
-        $tPolicy = EmployeeDetail::with('tracker_productivity', 'shift')->where("user_id", CommonUtil::getRedisUserID())->first();
+        
+        $tPolicy = EmployeeDetail::with('tracker_productivity', 'shift')->where("user_id", Auth::user()->id)->first();
         if ((!empty($tPolicy)) && (!empty($tPolicy->tracker_productivity))) {
             $trackerPolicy =  $tPolicy->tracker_productivity;
         } else {
@@ -82,7 +83,9 @@ class TrackerController extends Controller
                 $trackerPolicy =   $defaultPolicy;
             }
         }
+
         $userLateComing = false;
+        
         if ($trackerPolicy && $trackerPolicy->late_coming_early_going) {
             if ((!empty($tPolicy)) && (!empty($tPolicy->shift))) {
                 $isStartShift = $tPolicy->shift->day_start;
@@ -94,13 +97,15 @@ class TrackerController extends Controller
                     $isEndShift = $defaultShift->day_end;
                 }
             }
+
+
             if ($isStartShift && $isFirst) {
                 $userLateComing = $this->fetchTimeDiffernce($isStartShift, date("H:i:s", strtotime($request->start_date)), "start", $trackerPolicy);
             } else if ($isEndShift && !$isFirst && $dayEndTime < $isEndShift) {
                 $userLateComing = $this->fetchTimeDiffernce($isEndShift, $dayEndTime, $type, $trackerPolicy);
             }
         }
-
+        
         return $userLateComing;
     }
 
@@ -120,6 +125,7 @@ class TrackerController extends Controller
 
     public function saveWebTracking($request, $startDate, $endDate, $type)
     {
+
         $updateDateTime = empty($endDate) ? $startDate : $endDate;
         $lastMemoId = $request->project_id  ? $this->getLastMemo($request->project_id) : null;
         $memo = $lastMemoId ? TrackerMemo::find($lastMemoId) : null;
@@ -136,7 +142,7 @@ class TrackerController extends Controller
             "recent_activity_type" => $type == "start" ? "clock-in" : "clock-out",
         ];
 
-        $isFirstActivity = TrackerActivity::where("user_id", CommonUtil::getRedisUserID())->where("project_id", $request->project_id)->whereNotNull("end_date")->whereDate("start_date", date('Y-m-d', strtotime($updateDateTime)))->first();
+        $isFirstActivity = TrackerActivity::where("user_id", Auth::user()->id)->where("project_id", $request->project_id)->whereNotNull("end_date")->whereDate("start_date", date('Y-m-d', strtotime($updateDateTime)))->first();
 
         $checkLateOrNot = 0;
         if (!empty($isFirstActivity) && $type == "stop") {
@@ -148,16 +154,19 @@ class TrackerController extends Controller
             $type == "start" ? $activityArray["activity"][0]["is_late_coming"] = $checkLateOrNot : $activityArray["activity"][0]["is_early_going"] = $checkLateOrNot;
         }
 
+
         if ($activityArray) {
-            $webTracking = WebTracking::where("user_id", CommonUtil::getRedisUserID())->whereDate("created_at", date('Y-m-d', strtotime($updateDateTime)))->first();
+            $webTracking = WebTracking::where("user_id", Auth::user()->id)->whereDate("created_at", date('Y-m-d', strtotime($updateDateTime)))->first();
 
             if (empty($webTracking)) {
+                
                 $webTracking = new WebTracking();
                 $Existingactivity = $activityArray;
             } else {
+
                 $Existingactivity = json_decode($webTracking->activity, true);
                 if ($type == "start") {
-                    $tPolicy = EmployeeDetail::with('tracker_productivity')->where("user_id", CommonUtil::getRedisUserID())->first();
+                    $tPolicy = EmployeeDetail::with('tracker_productivity')->where("user_id", Auth::user()->id)->first();
                     $ignoreOutPunchMins = empty($tPolicy->tracker_productivity) ? 5 : $tPolicy->tracker_productivity->ignore_out_punch_mins;
                     $ignoreOutPunchTime = (empty($ignoreOutPunchMins) ? 5 : $ignoreOutPunchMins) * 60;
 
@@ -200,7 +209,8 @@ class TrackerController extends Controller
                 }
                 $Existingactivity["recent_activity_type"] = $activityArray["recent_activity_type"];
             }
-            $webTracking->user_id = CommonUtil::getRedisUserID();
+            
+            $webTracking->user_id = Auth::user()->id;
             $webTracking->total = $this->TodayTime($request, "common") ?? 0;
             $webTracking->activity = json_encode($Existingactivity);
             $webTracking->save();
@@ -209,6 +219,7 @@ class TrackerController extends Controller
 
     public function startActivity(Request $request, $type = true)
     {
+
         if ($request->has('project_id') && $request->project_id != '') {
             $request->merge(['project_id' => $this->decode($request->project_id)]);
         }
@@ -224,14 +235,14 @@ class TrackerController extends Controller
         try {
             DB::beginTransaction();
             $startActivity = new TrackerActivity();
-            $startActivity->user_id  = 9;
+            $startActivity->user_id  = Auth::user()->id;
             $startActivity->project_id = $request->project_id;
             $startActivity->tracker_memo_id = $request->project_id ? $this->getLastMemo($request->project_id, true) : null;
             $startActivity->start_date = $request->start_date ? date("Y-m-d H:i:s", strtotime($request->start_date)) : null;
-            $startActivity->created_by = 9;
+            $startActivity->created_by = Auth::user()->id;
             if ($startActivity->save()) {
                 DB::commit();
-                // $this->saveWebTracking($request, $request->start_date, null, "start");
+                $this->saveWebTracking($request, $request->start_date, null, "start");
                 if ($type) {
                     return $this->response('SUCCESS', "Successfully Start Tracker", /* json_encode */($startActivity));
                 } else {
@@ -243,7 +254,7 @@ class TrackerController extends Controller
             }
         } catch (Exception $e) {
             DB::rollBack();
-            return $this->serverErrorResponse($e);
+            return $this->serverErrorResponse($e->getMessage());
         }
     }
 
@@ -274,12 +285,12 @@ class TrackerController extends Controller
                 $stopActivity->end_date = $request->end_date ?  date("Y-m-d H:i:s", strtotime($request->end_date)) : null;
                 $stopActivity->productivity = $production ? $production["productivity"] : null;
                 $stopActivity->productive_duration = $production ? $production["productive_duration"] : null;
-                $stopActivity->updated_by = CommonUtil::getRedisUserID();
+                $stopActivity->updated_by = Auth::user()->id;
                 if ($stopActivity->save()) {
                     DB::commit();
                     $this->saveWebTracking($request, $stopActivity->start_date, $request->end_date, "stop");
                     if ($type) {
-                        return $this->response('SUCCESS', "Tracker stop successfully", json_encode($stopActivity));
+                        return $this->response('SUCCESS', "Tracker stop successfully", /* json_encode */($stopActivity));
                     } else {
                         return;
                     }
@@ -292,7 +303,7 @@ class TrackerController extends Controller
             }
         } catch (Exception $e) {
             DB::rollBack();
-            return $this->serverErrorResponse($e);
+            return $this->serverErrorResponse($e->getMessage());
         }
     }
 
@@ -324,13 +335,13 @@ class TrackerController extends Controller
                 $stopActivity->end_date = $request->start_date ?  date("Y-m-d H:i:s", strtotime($request->start_date)) : null;
                 $stopActivity->productivity = $production ? $production["productivity"] : null;
                 $stopActivity->productive_duration = $production ? $production["productive_duration"] : null;
-                $stopActivity->updated_by = CommonUtil::getRedisUserID();
+                $stopActivity->updated_by = Auth::user()->id;
                 if ($stopActivity->save()) {
                     $reStartActivity = new TrackerActivity();
                     $reStartActivity->project_id = $request->project_id;
-                    $reStartActivity->user_id  = CommonUtil::getRedisUserID();
+                    $reStartActivity->user_id  = Auth::user()->id;
                     $reStartActivity->tracker_memo_id = $request->project_id ? $this->getLastMemo($request->project_id) : null;
-                    $reStartActivity->created_by = CommonUtil::getRedisUserID();
+                    $reStartActivity->created_by = Auth::user()->id;
                     $reStartActivity->start_date = $request->start_date ? date("Y-m-d H:i:s", strtotime($request->start_date)) : null;
                     if ($reStartActivity->save()) {
 
@@ -339,7 +350,7 @@ class TrackerController extends Controller
 
                         DB::commit();
                         if ($type)
-                            return $this->response('SUCCESS', "Tracker restart successfully", json_encode($reStartActivity));
+                            return $this->response('SUCCESS', "Tracker restart successfully", /* json_encode */($reStartActivity));
                         else
                             return;
                     } else {
@@ -389,11 +400,11 @@ class TrackerController extends Controller
                 $trackerMemo = new TrackerMemo();
             } */
             $trackerMemo = new TrackerMemo();
-            $trackerMemo->user_id  = CommonUtil::getRedisUserID();
+            $trackerMemo->user_id  = Auth::user()->id;
             $trackerMemo->project_id = $request->project_id;
             $trackerMemo->tracker_status_id  = $request->tracker_status_id;
             $trackerMemo->description  = $request->description;
-            $trackerMemo->created_by = CommonUtil::getRedisUserID();
+            $trackerMemo->created_by = Auth::user()->id;
             if ($trackerMemo->save()) {
                 DB::commit();
                 $lastActivityId = $this->getLastActivityId($request->project_id);
@@ -407,7 +418,7 @@ class TrackerController extends Controller
                     }
                 }
                 if ($type) {
-                    return $this->response('SUCCESS', "Memo added Successfully", json_encode($trackerMemo));
+                    return $this->response('SUCCESS', "Memo added Successfully", /* json_encode */($trackerMemo));
                 } else {
                     return;
                 }
@@ -460,20 +471,22 @@ class TrackerController extends Controller
     public function getLastMemo($projectId, $type = false)
     {
         try {
-            $memo = TrackerMemo::where('user_id', 9)
+            $memo = TrackerMemo::where('user_id', Auth::user()->id)
                 ->where('project_id', $projectId)
                 ->orderBy("id", "DESC")
                 ->orderBy("created_at", "DESC")
                 ->first();
 
+                
             if (empty($memo) && $type) {
+                
                 $trackerStatus = TrackerStatus::where("project_id", $projectId)->first();
                 if ($trackerStatus) {
                     $trackerMemo = new TrackerMemo();
-                    $trackerMemo->user_id  = CommonUtil::getRedisUserID();
+                    $trackerMemo->user_id  = Auth::user()->id;
                     $trackerMemo->project_id = $projectId;
                     $trackerMemo->tracker_status_id  = $trackerStatus->id;
-                    $trackerMemo->created_by = CommonUtil::getRedisUserID();
+                    $trackerMemo->created_by = Auth::user()->id;
                     if ($trackerMemo->save()) {
                         DB::commit();
                         return $trackerMemo ? $trackerMemo->id : null;
@@ -508,7 +521,7 @@ class TrackerController extends Controller
     {
         try {
             $date = $request->manualDate ? $request->manualDate : Carbon::now()->format("Y-m-d");
-            $todayTotalTime = TrackerActivity::where('user_id', 1)
+            $todayTotalTime = TrackerActivity::where('user_id', Auth::user()->id)
                 ->whereDate('start_date', $date)
                 ->whereDate('end_date', $date)
                 ->sum('duration');
@@ -545,7 +558,7 @@ class TrackerController extends Controller
             $project_id = $type == "api" ? $request->project_id : $projectID;
             if ($project_id) {
                 $totalTrackedHours = TrackerActivity::where('project_id', $project_id)
-                    ->where('user_id', CommonUtil::getRedisUserID())
+                    ->where('user_id', Auth::user()->id)
                     ->whereDate('start_date', ">=", $week_start)
                     ->whereDate('end_date', "<=", $week_end)
                     ->sum('duration');
@@ -664,7 +677,7 @@ class TrackerController extends Controller
                 return $this->response('FAILURE', "something went wrong");
             } else {
                 DB::commit();
-                $screenshot_data = !is_array($request->file_url) ? json_encode($screenshot) : json_encode($screenshots);
+                $screenshot_data = !is_array($request->file_url) ? /* json_encode */($screenshot) : /* json_encode */($screenshots);
                 return $this->response('SUCCESS', "Screeshot accepted successfully", $screenshot_data);
             }
         } catch (Exception $e) {
@@ -694,11 +707,11 @@ class TrackerController extends Controller
             $activity = $activityId ? TrackerActivity::find($activityId) : null;
             if ($activity && $activity->delete()) {
                 $newActivity = new TrackerActivity();
-                $newActivity->user_id  = CommonUtil::getRedisUserID();
+                $newActivity->user_id  = Auth::user()->id;
                 $newActivity->project_id = $request->project_id;
                 $newActivity->tracker_memo_id = $request->project_id ? $this->getLastMemo($request->project_id) : null;
                 $newActivity->start_date = $request->start_date ? date("Y-m-d H:i:s", strtotime($request->start_date)) : null;
-                $newActivity->created_by = CommonUtil::getRedisUserID();
+                $newActivity->created_by = Auth::user()->id;
                 if ($newActivity->save()) {
                     DB::commit();
                     if ($type) {
@@ -721,7 +734,7 @@ class TrackerController extends Controller
     public function getLastScreenshot($project_id)
     {
         try {
-            $activity = TrackerActivity::where("user_id", 9)->where("project_id", $project_id)->WhereNotNull("end_date");
+            $activity = TrackerActivity::where("user_id", Auth::user()->id)->where("project_id", $project_id)->WhereNotNull("end_date");
             $activity = $activity->whereHas("screenshots")->orderBy('id', "DESC")->first();
             if ($activity) {
                 $lastScreenshot = TrackerScreenshot::where("tracker_activity_id", $activity->id)->orderBy('id', "DESC")->first();
@@ -752,7 +765,7 @@ class TrackerController extends Controller
     public function getLastActivityId($project_id)
     {
         try {
-            $activity = TrackerActivity::where("user_id", CommonUtil::getRedisUserID())->where("project_id", $project_id)->orderBy("id", "DESC")->orderBy("created_at", "DESC")->first();
+            $activity = TrackerActivity::where("user_id", Auth::user()->id)->where("project_id", $project_id)->orderBy("id", "DESC")->orderBy("created_at", "DESC")->first();
             return empty($activity) ? null : $activity->id;
         } catch (Exception $e) {
             return $this->serverErrorResponse($e);
@@ -783,10 +796,11 @@ class TrackerController extends Controller
         if ($validator->fails()) {
             return $this->response('VALIDATION_ERROR', $validator->errors()->first());
         }
+
         try {
             foreach ($request->offline_data as $data) {
-                foreach ($data->data as $value) {
-                    if ($value->type == "accept_ss") {
+                foreach ($data['data']as $value) {
+                    if ($value["type"] == "accept_ss") {
                         try {
                             DB::beginTransaction();
                             foreach ($value->file as $image) {
@@ -805,38 +819,38 @@ class TrackerController extends Controller
                         } catch (Exception $e) {
                             DB::rollBack();
                         }
-                    } else if ($value->type == "stop_tracker") {
-                        $request->merge(["project_id" => $value->project_id]);
-                        $request->merge(["keyboard_mouse_count" => $value->keyboard_mouse_count]);
-                        $request->merge(["duration" => $value->duration]);
-                        $request->merge(["end_date" => $value->end_date]);
+                    } else if ($value["type"] == "stop_tracker") {
+                        $request->merge(["project_id" => $value["project_id"]]);
+                        $request->merge(["keyboard_mouse_count" => $value["keyboard_mouse_count"]]);
+                        $request->merge(["duration" => $value["duration"]]);
+                        $request->merge(["end_date" => $value["end_date"]]);
                         $this->stopActivity($request, false);
-                    } else if ($value->type == "start_tracker") {
-                        $request->merge(["project_id" => $value->project_id]);
-                        $request->merge(["start_date" => $value->start_date]);
+                    } else if ($value["type"] == "start_tracker") {
+                        $request->merge(["project_id" => $value["project_id"]]);
+                        $request->merge(["start_date" => $value["start_date"]]);
                         $this->startActivity($request, false);
-                    } else if ($value->type == "first_memo") {
-                        $request->merge(["project_id" => $value->project_id]);
-                        $request->merge(["tracker_status_id" => $value->tracker_status_id]);
-                        $request->merge(["description" => $value->description]);
+                    } else if ($value["type"] == "first_memo") {
+                        $request->merge(["project_id" => $value["project_id"]]);
+                        $request->merge(["tracker_status_id" => $value["tracker_status_id"]]);
+                        $request->merge(["description" => $value["description"]]);
                         $this->addMemo($request, false);
-                    } else if ($value->type == "restart_activity") {
-                        $request->merge(["project_id" => $value->project_id]);
-                        $request->merge(["keyboard_mouse_count" => $value->keyboard_mouse_count]);
-                        $request->merge(["duration" => $value->duration]);
-                        $request->merge(["start_date" => $value->start_date]);
+                    } else if ($value["type"] == "restart_activity") {
+                        $request->merge(["project_id" => $value["project_id"]]);
+                        $request->merge(["keyboard_mouse_count" => $value["keyboard_mouse_count"]]);
+                        $request->merge(["duration" => $value["duration"]]);
+                        $request->merge(["start_date" => $value["start_date"]]);
                         $this->restartActivity($request, false);
-                    } else if ($value->type == "reject_ss") {
-                        $request->merge(["project_id" => $value->project_id]);
-                        $request->merge(["start_date" => $value->start_date]);
+                    } else if ($value["type"] == "reject_ss") {
+                        $request->merge(["project_id" => $value["project_id"]]);
+                        $request->merge(["start_date" => $value["start_date"]]);
                         $this->rejectScreenshot($request, false);
                     }
                 }
             }
-            $lastActivityId = $this->getLastActivityId($this->decode($value->project_id));
-            return $this->response("SUCCESS", "Offline data added successfully", json_encode($this->encode($lastActivityId)));
+            $lastActivityId = $this->getLastActivityId($this->decode($value["project_id"]));
+            return $this->response("SUCCESS", "Offline data added successfully", /* json_encode */($this->encode($lastActivityId)));
         } catch (Exception $e) {
-            return $this->serverErrorResponse($e);
+            return $this->serverErrorResponse($e->getMessage());
         }
     }
 
@@ -895,24 +909,28 @@ class TrackerController extends Controller
 
             $s3 = \Storage::disk('s3');
             $client = $s3->getDriver()->getAdapter()->getClient();
-
+            
             // $redisData = CommonUtil::getRedisData();
-            $userID = CommonUtil::getRedisUserID();
-            $bucketName = CommonUtil::getRedisBucketName();
-
+            $userID = Auth::user()->id;
+            // $bucketName = CommonUtil::getRedisBucketName();
+            $bucketName = 'Laravel';
+            
             $projectID = $request->get('project_id');
             $fileCount = $request->get('file_count');
 
             $link = [];
             for ($i = 0; $i < $fileCount; $i++) {
                 $fileName = Str::random(5) . time();
-                $path = "tracker/$projectID/$userID/$fileName.png";
+                $path = "music/images/$projectID/$userID/$fileName.png";
+                // $path = "tracker/$projectID/$userID/$fileName.png";
 
                 $command = $client->getCommand('PutObject', ['Bucket' => $bucketName, 'Key' => $path]);
-
+                
                 $uploadLink = (string) $client->createPresignedRequest($command, "+10 minutes")->getUri();
+
                 $link[$i]['upload_link'] = $uploadLink;
-                $link[$i]['public_link'] = 'https://' . $bucketName . '.' . env('AWS_REGION_URL', 's3.' . env('AWS_DEFAULT_REGION', 'ap-south-1') . '.amazonaws.com') . '/' . $path . '?t=' . time();
+                $link[$i]['public_link'] = env('AWS_ENDPOINT').'/'.$bucketName.'/'.$path . '?t=' . time();
+                // $link[$i]['public_link'] = 'https://' . $bucketName . '.' . env('AWS_REGION_URL', 's3.' . env('AWS_DEFAULT_REGION', 'ap-south-1') . '.amazonaws.com') . '/' . $path . '?t=' . time();
 
                 if ($request->hasFile('image')) {
                     if (is_array($request->image)) {
@@ -959,7 +977,7 @@ class TrackerController extends Controller
                 }
             }
 
-            return $this->response('SUCCESS', "Successfully Created Screenshot Upload Links", json_encode($link));
+            return $this->response('SUCCESS', "Successfully Created Screenshot Upload Links", /* json_encode */($link));
         } catch (Exception $e) {
             return $this->response('FAILURE',  "Something went wrong, please try again.", $e);
         }
